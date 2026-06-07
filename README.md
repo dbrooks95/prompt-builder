@@ -65,26 +65,29 @@ git clone https://github.com/ComfyAssets/kiko-flux2-prompt-builder.git
 ## 📤 Outputs
 
 ### JSON Prompt
-Structured JSON perfect for advanced workflows:
+Official FLUX.2 structured JSON for advanced workflows:
 ```json
 {
-  "prompt": "A weathered fisherman...",
+  "scene": "A weathered fisherman...",
+  "subjects": [
+    {
+      "description": "A weathered fisherman",
+      "position": "center foreground",
+      "color_palette": ["#8B4513", "#4169E1", "#B0C4DE"]
+    }
+  ],
   "style": "documentary photography...",
+  "color_palette": ["#8B4513", "#4169E1", "#B0C4DE"],
+  "lighting": "golden hour lighting...",
+  "mood": "moody atmosphere...",
+  "background": "morning mist rolling across the harbor",
+  "composition": "rule of thirds",
   "camera": {
     "angle": "eye level",
     "distance": "medium close-up",
-    "lens-mm": 85,
-    "f-number": "f/1.8",
-    "ISO": 200,
-    "focus": "Sharp focus on eyes"
-  },
-  "film_stock": "shot on Canon EOS 5D Mark IV...",
-  "lighting": "golden hour lighting...",
-  "colors": {
-    "palette": ["#8B4513", "#4169E1", "#B0C4DE"],
-    "mood": "moody atmosphere..."
-  },
-  "composition": "rule of thirds"
+    "lens": "shot on Canon EOS 5D Mark IV, 85mm lens, f/1.8, ISO 200",
+    "depth_of_field": "Sharp focus on eyes"
+  }
 }
 ```
 

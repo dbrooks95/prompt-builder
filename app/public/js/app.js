@@ -250,61 +250,82 @@ function updateColorPicker(textInput, value) {
   }
 }
 
+function firstClause(text) {
+  const clean = `${text || ''}`.replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  for (const sep of [' with ', ',', ';', '.']) {
+    if (clean.includes(sep)) {
+      const first = clean.split(sep, 1)[0].trim();
+      if (first) return first;
+    }
+  }
+  return clean;
+}
+
+function backgroundFromPrompt(prompt) {
+  const clean = `${prompt || ''}`.replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  const clauses = clean.split(',').map((part) => part.replace(/^[ .]+|[ .]+$/g, '')).filter(Boolean);
+  for (let idx = 0; idx < clauses.length; idx += 1) {
+    const loweredClause = clauses[idx].toLowerCase();
+    if (['background', 'behind', 'backdrop'].some((marker) => loweredClause.includes(marker))) {
+      return clauses.slice(idx, Math.min(clauses.length, idx + 2)).join(', ').replace(/^[ ,.]+|[ ,.]+$/g, '');
+    }
+  }
+  const lowered = clean.toLowerCase();
+  for (const marker of [' in the background', ' behind ', ' backdrop']) {
+    const idx = lowered.indexOf(marker);
+    if (idx >= 0) return clean.slice(idx).replace(/^[ ,.]+|[ ,.]+$/g, '');
+  }
+  return '';
+}
+
+function cameraLensDescription() {
+  const parts = [];
+  if (cameraModel.value.trim()) parts.push(cameraModel.value.trim());
+  if (cameraLens.value.trim()) {
+    const lens = cameraLens.value.trim();
+    parts.push(lens.toLowerCase().includes('lens') ? lens : `${lens} lens`);
+  }
+  if (cameraAperture.value.trim()) parts.push(cameraAperture.value.trim());
+  if (cameraISO.value.trim()) parts.push(`ISO ${cameraISO.value.trim()}`);
+  return parts.join(', ');
+}
+
 // Generate JSON
 function generateJSON() {
   const shouldIncludeEmpty = includeEmpty.checked;
-  const useNumericLens = numericLens.checked;
+  const filteredColors = colors.filter(c => c.trim() !== '');
 
   const data = {};
 
-  // Add fields conditionally
-  if (promptInput.value || shouldIncludeEmpty) data.prompt = promptInput.value;
-  if (styleInput.value || shouldIncludeEmpty) data.style = styleInput.value;
+  if (promptInput.value || shouldIncludeEmpty) data.scene = promptInput.value;
 
-  // Camera object
+  const subject = {};
+  const subjectDescription = firstClause(promptInput.value);
+  if (subjectDescription || shouldIncludeEmpty) subject.description = subjectDescription;
+  if (shouldIncludeEmpty || subjectDescription) subject.position = 'center foreground';
+  if (filteredColors.length > 0 || shouldIncludeEmpty) subject.color_palette = filteredColors;
+  if (Object.keys(subject).length > 0 || shouldIncludeEmpty) data.subjects = [subject];
+
+  if (styleInput.value || shouldIncludeEmpty) data.style = styleInput.value;
+  if (filteredColors.length > 0 || shouldIncludeEmpty) data.color_palette = filteredColors;
+  if (lightingInput.value || shouldIncludeEmpty) data.lighting = lightingInput.value;
+  if (colorMood.value || shouldIncludeEmpty) data.mood = colorMood.value;
+
+  const background = backgroundFromPrompt(promptInput.value);
+  if (background || shouldIncludeEmpty) data.background = background;
+
+  if (compositionInput.value || shouldIncludeEmpty) data.composition = compositionInput.value;
+
   const camera = {};
   if (cameraAngle.value || shouldIncludeEmpty) camera.angle = cameraAngle.value;
   if (cameraShot.value || shouldIncludeEmpty) camera.distance = cameraShot.value;
-
-  // Lens handling
-  if (cameraLens.value || shouldIncludeEmpty) {
-    if (useNumericLens) {
-      const lensMatch = cameraLens.value.match(/(\d+)/);
-      if (lensMatch) {
-        camera['lens-mm'] = parseInt(lensMatch[1]);
-      } else {
-        camera.lens = cameraLens.value;
-      }
-    } else {
-      camera.lens = cameraLens.value;
-    }
-  }
-
-  if (cameraAperture.value || shouldIncludeEmpty) camera['f-number'] = cameraAperture.value;
-  if (cameraISO.value || shouldIncludeEmpty) {
-    const isoNum = parseInt(cameraISO.value);
-    camera.ISO = isNaN(isoNum) ? cameraISO.value : isoNum;
-  }
-  if (cameraFocus.value || shouldIncludeEmpty) camera.focus = cameraFocus.value;
+  const lensDescription = cameraLensDescription();
+  if (lensDescription || shouldIncludeEmpty) camera.lens = lensDescription;
+  if (cameraFocus.value || shouldIncludeEmpty) camera.depth_of_field = cameraFocus.value;
 
   if (Object.keys(camera).length > 0 || shouldIncludeEmpty) data.camera = camera;
-
-  // Film stock as separate field
-  if (cameraModel.value) data.film_stock = cameraModel.value;
-
-  // Lighting
-  if (lightingInput.value || shouldIncludeEmpty) data.lighting = lightingInput.value;
-
-  // Colors
-  const filteredColors = colors.filter(c => c.trim() !== '');
-  if (filteredColors.length > 0 || colorMood.value || shouldIncludeEmpty) {
-    data.colors = {};
-    if (filteredColors.length > 0 || shouldIncludeEmpty) data.colors.palette = filteredColors;
-    if (colorMood.value || shouldIncludeEmpty) data.colors.mood = colorMood.value;
-  }
-
-  // Composition
-  if (compositionInput.value || shouldIncludeEmpty) data.composition = compositionInput.value;
 
   return data;
 }

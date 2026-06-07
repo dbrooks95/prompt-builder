@@ -29,9 +29,13 @@ const defaultState = () => ({
   lighting: "",
   colors: [],
   colorMood: "",
+  subjectDescription: "",
+  subjectPosition: "center foreground",
+  subjectAction: "",
+  background: "",
   composition: "",
   includeEmpty: false,
-  numericLens: true,
+  numericLens: false,
 });
 
 async function loadData() {
@@ -89,70 +93,110 @@ function applyPresetDefaults(state) {
   return next;
 }
 
+function firstClause(text) {
+  const clean = `${text || ""}`.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  for (const sep of [" with ", ",", ";", "."]) {
+    if (clean.includes(sep)) {
+      const first = clean.split(sep, 1)[0].trim();
+      if (first) return first;
+    }
+  }
+  return clean;
+}
+
+function backgroundFromPrompt(prompt) {
+  const clean = `${prompt || ""}`.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const clauses = clean.split(",").map((part) => part.replace(/^[ .]+|[ .]+$/g, "")).filter(Boolean);
+  for (let idx = 0; idx < clauses.length; idx += 1) {
+    const loweredClause = clauses[idx].toLowerCase();
+    if (["background", "behind", "backdrop"].some((marker) => loweredClause.includes(marker))) {
+      return clauses.slice(idx, Math.min(clauses.length, idx + 2)).join(", ").replace(/^[ ,.]+|[ ,.]+$/g, "");
+    }
+  }
+  const lowered = clean.toLowerCase();
+  for (const marker of [" in the background", " behind ", " backdrop"]) {
+    const idx = lowered.indexOf(marker);
+    if (idx >= 0) return clean.slice(idx).replace(/^[ ,.]+|[ ,.]+$/g, "");
+  }
+  return "";
+}
+
+function cameraLensDescription(state) {
+  const parts = [];
+  const model = `${state.cameraModel || ""}`.trim();
+  const lens = `${state.cameraLens || ""}`.trim();
+  const aperture = `${state.cameraAperture || ""}`.trim();
+  const iso = `${state.cameraISO || ""}`.trim();
+  if (model) parts.push(model);
+  if (lens) parts.push(lens.toLowerCase().includes("lens") ? lens : `${lens} lens`);
+  if (aperture) parts.push(aperture);
+  if (iso) parts.push(`ISO ${iso}`);
+  return parts.join(", ");
+}
+
 function buildData(state) {
   const includeEmpty = !!state.includeEmpty;
-  const numericLens = state.numericLens !== false;
+  const palette = coercePalette(state.colors);
+
+  const data = {};
+  if (state.prompt || includeEmpty) data.scene = state.prompt;
+
+  const subject = {};
+  const subjectDescription = state.subjectDescription || firstClause(state.prompt);
+  const subjectPosition = state.subjectPosition || "center foreground";
+  const subjectAction = state.subjectAction || "";
+  if (subjectDescription || includeEmpty) subject.description = subjectDescription;
+  if (subjectPosition || includeEmpty) subject.position = subjectPosition;
+  if (subjectAction || includeEmpty) subject.action = subjectAction;
+  if (palette.length || includeEmpty) subject.color_palette = palette;
+  if (Object.keys(subject).length || includeEmpty) data.subjects = [subject];
+
+  if (state.style || includeEmpty) data.style = state.style;
+  if (palette.length || includeEmpty) data.color_palette = palette;
+  if (state.lighting || includeEmpty) data.lighting = state.lighting;
+  if (state.colorMood || includeEmpty) data.mood = state.colorMood;
+  const background = state.background || backgroundFromPrompt(state.prompt);
+  if (background || includeEmpty) data.background = background;
+  if (state.composition || includeEmpty) data.composition = state.composition;
 
   const camera = {};
   if (state.cameraAngle || includeEmpty) camera.angle = state.cameraAngle;
   if (state.cameraShot || includeEmpty) camera.distance = state.cameraShot;
-  if (state.cameraLens || includeEmpty) {
-    if (numericLens) {
-      const digits = `${state.cameraLens}`.replace(/[^0-9]/g, "");
-      if (digits) camera["lens-mm"] = parseInt(digits, 10);
-      else camera.lens = state.cameraLens;
-    } else {
-      camera.lens = state.cameraLens;
-    }
-  }
-  if (state.cameraAperture || includeEmpty) camera["f-number"] = state.cameraAperture;
-  if (state.cameraISO || includeEmpty) {
-    const isoNum = parseInt(state.cameraISO, 10);
-    camera.ISO = Number.isNaN(isoNum) ? state.cameraISO : isoNum;
-  }
-  if (state.cameraFocus || includeEmpty) camera.focus = state.cameraFocus;
-
-  const data = {};
-  if (state.prompt || includeEmpty) data.prompt = state.prompt;
-  if (state.style || includeEmpty) data.style = state.style;
+  const lensDescription = cameraLensDescription(state);
+  if (lensDescription || includeEmpty) camera.lens = lensDescription;
+  if (state.cameraFocus || includeEmpty) camera.depth_of_field = state.cameraFocus;
   if (Object.keys(camera).length || includeEmpty) data.camera = camera;
-  if (state.cameraModel) data.film_stock = state.cameraModel;
-  if (state.lighting || includeEmpty) data.lighting = state.lighting;
 
-  const palette = coercePalette(state.colors);
-  if (palette.length || state.colorMood || includeEmpty) {
-    data.colors = {};
-    if (palette.length || includeEmpty) data.colors.palette = palette;
-    if (state.colorMood || includeEmpty) data.colors.mood = state.colorMood;
-  }
-
-  if (state.composition || includeEmpty) data.composition = state.composition;
   return data;
 }
 
 function buildText(data) {
   const parts = [];
-  if (data.prompt) parts.push(data.prompt);
+  if (data.scene) parts.push(data.scene);
   if (data.style) parts.push(`Style: ${data.style}`);
+
+  (data.subjects || []).forEach((subject) => {
+    if (!subject?.description) return;
+    const extras = [subject.position, subject.action].filter(Boolean);
+    parts.push(`Subject: ${subject.description}${extras.length ? ` (${extras.join(", ")})` : ""}`);
+  });
 
   const camera = data.camera || {};
   if (Object.keys(camera).length) {
     const desc = [];
     if (camera.angle) desc.push(`${camera.angle} angle`);
     if (camera.distance) desc.push(camera.distance);
-    if (camera["lens-mm"] !== undefined) desc.push(`${camera["lens-mm"]}mm lens`);
-    if (camera.lens) desc.push(`${camera.lens} lens`);
-    if (camera["f-number"]) desc.push(camera["f-number"]);
+    if (camera.lens) desc.push(camera.lens);
     if (desc.length) parts.push(`Camera: ${desc.join(", ")}`);
-    if (camera.focus) parts.push(`Focus: ${camera.focus}`);
+    if (camera.depth_of_field) parts.push(`Depth of field: ${camera.depth_of_field}`);
   }
 
-  if (data.film_stock) parts.push(`${data.film_stock}`);
   if (data.lighting) parts.push(`Lighting: ${data.lighting}`);
-
-  const colors = data.colors || {};
-  if (colors.palette?.length) parts.push(`Colors: ${colors.palette.join(", ")}`);
-  if (colors.mood) parts.push(`Mood: ${colors.mood}`);
+  if (data.color_palette?.length) parts.push(`Colors: ${data.color_palette.join(", ")}`);
+  if (data.mood) parts.push(`Mood: ${data.mood}`);
+  if (data.background) parts.push(`Background: ${data.background}`);
   if (data.composition) parts.push(`Composition: ${data.composition}`);
   return parts.join(". ");
 }
@@ -314,6 +358,10 @@ function syncWidgets(node, state) {
     lighting: "lighting",
     color_palette: "colors",
     color_mood: "colorMood",
+    subject_description: "subjectDescription",
+    subject_position: "subjectPosition",
+    subject_action: "subjectAction",
+    background: "background",
     composition: "composition",
     include_empty_fields: "includeEmpty",
     numeric_lens_format: "numericLens",
@@ -780,6 +828,63 @@ function renderForm(uiParts, state) {
   });
   body.appendChild(fieldGroup("Style", styleSelector));
 
+  // Official FLUX.2 subject/background controls
+  const structureSection = createElement("div", "kiko-sub-section");
+  structureSection.appendChild(createElement("div", "kiko-sub-section-title", "Official FLUX.2 Structure"));
+
+  const subjectDescInput = document.createElement("input");
+  subjectDescInput.type = "text";
+  subjectDescInput.className = "kiko-field-input";
+  subjectDescInput.placeholder = "Main subject; inferred from scene if blank";
+  subjectDescInput.value = state.subjectDescription || "";
+  subjectDescInput.oninput = () => {
+    state.subjectDescription = subjectDescInput.value;
+    update();
+  };
+  structureSection.appendChild(fieldGroup("Subject Description", subjectDescInput));
+
+  const subjectRow = createElement("div", "kiko-inline-fields");
+  const subjectPositionGroup = createElement("div", "kiko-field-group");
+  subjectPositionGroup.appendChild(createElement("div", "kiko-field-label", "Subject Position"));
+  const subjectPositionInput = document.createElement("input");
+  subjectPositionInput.type = "text";
+  subjectPositionInput.className = "kiko-field-input";
+  subjectPositionInput.placeholder = "center foreground";
+  subjectPositionInput.value = state.subjectPosition || "center foreground";
+  subjectPositionInput.oninput = () => {
+    state.subjectPosition = subjectPositionInput.value;
+    update();
+  };
+  subjectPositionGroup.appendChild(subjectPositionInput);
+
+  const subjectActionGroup = createElement("div", "kiko-field-group");
+  subjectActionGroup.appendChild(createElement("div", "kiko-field-label", "Subject Action"));
+  const subjectActionInput = document.createElement("input");
+  subjectActionInput.type = "text";
+  subjectActionInput.className = "kiko-field-input";
+  subjectActionInput.placeholder = "gliding, standing, stationary";
+  subjectActionInput.value = state.subjectAction || "";
+  subjectActionInput.oninput = () => {
+    state.subjectAction = subjectActionInput.value;
+    update();
+  };
+  subjectActionGroup.appendChild(subjectActionInput);
+  subjectRow.append(subjectPositionGroup, subjectActionGroup);
+  structureSection.appendChild(subjectRow);
+
+  const backgroundInput = document.createElement("input");
+  backgroundInput.type = "text";
+  backgroundInput.className = "kiko-field-input";
+  backgroundInput.placeholder = "Background details; inferred from scene if blank";
+  backgroundInput.value = state.background || "";
+  backgroundInput.oninput = () => {
+    state.background = backgroundInput.value;
+    update();
+  };
+  structureSection.appendChild(fieldGroup("Background", backgroundInput));
+
+  body.appendChild(structureSection);
+
   // Camera Settings sub-section
   const cameraSection = createElement("div", "kiko-sub-section");
   const cameraTitle = createElement("div", "kiko-sub-section-title", "Camera Settings");
@@ -1026,7 +1131,7 @@ function renderForm(uiParts, state) {
   outputSection.appendChild(toggleRow1);
 
   const toggleRow2 = createElement("div", "kiko-toggle-row");
-  const toggleLabel2 = createElement("span", "kiko-toggle-label", "Numeric lens-mm format");
+  const toggleLabel2 = createElement("span", "kiko-toggle-label", "Deprecated legacy lens-mm toggle (ignored)");
   const toggleSwitch2 = createElement("label", "kiko-toggle-switch");
   const toggleInput2 = document.createElement("input");
   toggleInput2.type = "checkbox";

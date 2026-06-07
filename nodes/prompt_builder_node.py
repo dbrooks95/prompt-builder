@@ -75,9 +75,13 @@ def _default_state() -> Dict[str, Any]:
         "lighting": "",
         "colors": ["#2A5BDA", "amber glow"],
         "colorMood": "",
+        "subjectDescription": "",
+        "subjectPosition": "center foreground",
+        "subjectAction": "",
+        "background": "",
         "composition": "",
         "includeEmpty": False,
-        "numericLens": True,
+        "numericLens": False,
     }
 
 
@@ -136,86 +140,151 @@ def _coerce_palette(value: Any) -> List[str]:
     return []
 
 
-def _build_data(state: Dict[str, Any]) -> Dict[str, Any]:
-    include_empty = bool(state.get("includeEmpty"))
-    numeric_lens = bool(state.get("numericLens"))
+def _first_clause(text: str) -> str:
+    """Return the first useful clause from a scene prompt for subject fallback."""
+    clean = " ".join(str(text or "").split())
+    if not clean:
+        return ""
+    for sep in [" with ", ",", ";", "."]:
+        if sep in clean:
+            first = clean.split(sep, 1)[0].strip()
+            if first:
+                return first
+    return clean
 
-    prompt = state.get("prompt", "")
-    style = state.get("style", "")
-    camera_angle = state.get("cameraAngle", "")
-    camera_shot = state.get("cameraShot", "")
+
+def _background_from_prompt(prompt: str) -> str:
+    """Best-effort background extraction from natural prompt text."""
+    clean = " ".join(str(prompt or "").split())
+    if not clean:
+        return ""
+    clauses = [part.strip(" .") for part in clean.split(",") if part.strip(" .")]
+    for idx, clause in enumerate(clauses):
+        lowered_clause = clause.lower()
+        if any(marker in lowered_clause for marker in ["background", "behind", "backdrop"]):
+            selected = clauses[idx : min(len(clauses), idx + 2)]
+            return ", ".join(selected).strip(" ,.")
+    lowered = clean.lower()
+    for marker in [" in the background", " behind ", " backdrop"]:
+        idx = lowered.find(marker)
+        if idx >= 0:
+            return clean[idx:].strip(" ,.")
+    return ""
+
+
+def _camera_lens_description(camera_lens: Any, camera_aperture: Any, camera_iso: Any, camera_model: Any) -> str:
+    parts: List[str] = []
+    model = str(camera_model or "").strip()
+    lens = str(camera_lens or "").strip()
+    aperture = str(camera_aperture or "").strip()
+    iso = str(camera_iso or "").strip()
+
+    if model:
+        parts.append(model)
+    if lens:
+        parts.append(f"{lens} lens" if "lens" not in lens.lower() else lens)
+    if aperture:
+        parts.append(aperture)
+    if iso:
+        parts.append(f"ISO {iso}")
+    return ", ".join(parts)
+
+
+def _build_data(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Build an official FLUX.2 structured JSON prompt.
+
+    The official FLUX.2 docs center the schema on scene, subjects,
+    color_palette, mood, background, composition, and camera.angle/lens/
+    depth_of_field. Older Kiko camera details are folded into the official
+    lens/depth_of_field strings instead of emitted as legacy lens-mm,
+    f-number, ISO, film_stock, or colors.mood keys.
+    """
+    include_empty = bool(state.get("includeEmpty"))
+
+    prompt = str(state.get("prompt", "") or "")
+    style = str(state.get("style", "") or "")
+    camera_angle = str(state.get("cameraAngle", "") or "")
+    camera_shot = str(state.get("cameraShot", "") or "")
     camera_lens = state.get("cameraLens", "")
     camera_aperture = state.get("cameraAperture", "")
     camera_iso = state.get("cameraISO", "")
-    camera_focus = state.get("cameraFocus", "")
+    camera_focus = str(state.get("cameraFocus", "") or "")
     camera_model = state.get("cameraModel", "")
-    lighting = state.get("lighting", "")
+    lighting = str(state.get("lighting", "") or "")
     palette = _coerce_palette(state.get("colors", []))
-    color_mood = state.get("colorMood", "")
-    composition = state.get("composition", "")
+    color_mood = str(state.get("colorMood", "") or "")
+    composition = str(state.get("composition", "") or "")
+    background = str(state.get("background", "") or _background_from_prompt(prompt))
+
+    subject_description = str(state.get("subjectDescription", "") or _first_clause(prompt))
+    subject_position = str(state.get("subjectPosition", "") or "center foreground")
+    subject_action = str(state.get("subjectAction", "") or "")
 
     data: Dict[str, Any] = {}
-
     if prompt or include_empty:
-        data["prompt"] = prompt
+        data["scene"] = prompt
+
+    subject: Dict[str, Any] = {}
+    if subject_description or include_empty:
+        subject["description"] = subject_description
+    if subject_position or include_empty:
+        subject["position"] = subject_position
+    if subject_action or include_empty:
+        subject["action"] = subject_action
+    if palette or include_empty:
+        subject["color_palette"] = palette
+    if subject or include_empty:
+        data["subjects"] = [subject]
+
     if style or include_empty:
         data["style"] = style
+    if palette or include_empty:
+        data["color_palette"] = palette
+    if lighting or include_empty:
+        data["lighting"] = lighting
+    if color_mood or include_empty:
+        data["mood"] = color_mood
+    if background or include_empty:
+        data["background"] = background
+    if composition or include_empty:
+        data["composition"] = composition
 
     camera: Dict[str, Any] = {}
     if camera_angle or include_empty:
         camera["angle"] = camera_angle
     if camera_shot or include_empty:
         camera["distance"] = camera_shot
-
-    if camera_lens or include_empty:
-        if numeric_lens:
-            digits = "".join(ch for ch in str(camera_lens) if ch.isdigit())
-            if digits:
-                camera["lens-mm"] = int(digits)
-            else:
-                camera["lens"] = camera_lens
-        else:
-            camera["lens"] = camera_lens
-
-    if camera_aperture or include_empty:
-        camera["f-number"] = camera_aperture
-    if camera_iso or include_empty:
-        try:
-            camera["ISO"] = int(camera_iso)
-        except (TypeError, ValueError):
-            camera["ISO"] = camera_iso
+    lens_description = _camera_lens_description(camera_lens, camera_aperture, camera_iso, camera_model)
+    if lens_description or include_empty:
+        camera["lens"] = lens_description
     if camera_focus or include_empty:
-        camera["focus"] = camera_focus
-
+        camera["depth_of_field"] = camera_focus
     if camera or include_empty:
         data["camera"] = camera
-
-    if camera_model:
-        data["film_stock"] = camera_model
-
-    if lighting or include_empty:
-        data["lighting"] = lighting
-
-    if palette or color_mood or include_empty:
-        colors: Dict[str, Any] = {}
-        if palette or include_empty:
-            colors["palette"] = palette
-        if color_mood or include_empty:
-            colors["mood"] = color_mood
-        data["colors"] = colors
-
-    if composition or include_empty:
-        data["composition"] = composition
 
     return data
 
 
 def _build_text_prompt(data: Dict[str, Any]) -> str:
     parts: List[str] = []
-    if data.get("prompt"):
-        parts.append(str(data["prompt"]))
+    if data.get("scene"):
+        parts.append(str(data["scene"]))
     if data.get("style"):
         parts.append(f"Style: {data['style']}")
+
+    subjects = data.get("subjects") or []
+    for subject in subjects:
+        if not isinstance(subject, dict):
+            continue
+        desc = subject.get("description")
+        position = subject.get("position")
+        action = subject.get("action")
+        if desc:
+            subject_text = f"Subject: {desc}"
+            extras = [v for v in [position, action] if v]
+            if extras:
+                subject_text += f" ({', '.join(extras)})"
+            parts.append(subject_text)
 
     camera = data.get("camera") or {}
     if camera:
@@ -223,30 +292,24 @@ def _build_text_prompt(data: Dict[str, Any]) -> str:
         if camera.get("angle"):
             camera_desc.append(f"{camera['angle']} angle")
         if camera.get("distance"):
-            camera_desc.append(camera["distance"])
-        if camera.get("lens-mm") is not None:
-            camera_desc.append(f"{camera['lens-mm']}mm lens")
-        elif camera.get("lens"):
-            camera_desc.append(f"{camera['lens']} lens")
-        if camera.get("f-number"):
-            camera_desc.append(camera["f-number"])
+            camera_desc.append(str(camera["distance"]))
+        if camera.get("lens"):
+            camera_desc.append(str(camera["lens"]))
         if camera_desc:
             parts.append(f"Camera: {', '.join(camera_desc)}")
-        if camera.get("focus"):
-            parts.append(f"Focus: {camera['focus']}")
-        if data.get("film_stock"):
-            parts.append(str(data["film_stock"]))
+        if camera.get("depth_of_field"):
+            parts.append(f"Depth of field: {camera['depth_of_field']}")
 
     if data.get("lighting"):
         parts.append(f"Lighting: {data['lighting']}")
 
-    colors = data.get("colors") or {}
-    palette = colors.get("palette") or []
+    palette = data.get("color_palette") or []
     if palette:
         parts.append(f"Colors: {', '.join(palette)}")
-    if colors.get("mood"):
-        parts.append(f"Mood: {colors['mood']}")
-
+    if data.get("mood"):
+        parts.append(f"Mood: {data['mood']}")
+    if data.get("background"):
+        parts.append(f"Background: {data['background']}")
     if data.get("composition"):
         parts.append(f"Composition: {data['composition']}")
 
@@ -317,6 +380,22 @@ class KikoFlux2PromptBuilder:
                     },
                 ),
                 "color_mood": ("STRING", {"default": "", "placeholder": "e.g., moody atmosphere"}),
+                "subject_description": (
+                    "STRING",
+                    {"default": "", "placeholder": "Main subject; inferred from scene if empty"},
+                ),
+                "subject_position": (
+                    "STRING",
+                    {"default": "center foreground", "placeholder": "e.g., center foreground"},
+                ),
+                "subject_action": (
+                    "STRING",
+                    {"default": "", "placeholder": "e.g., walking, gliding, stationary"},
+                ),
+                "background": (
+                    "STRING",
+                    {"default": "", "placeholder": "Background details; inferred from scene if empty"},
+                ),
                 "composition": (
                     "STRING",
                     {
@@ -325,7 +404,13 @@ class KikoFlux2PromptBuilder:
                     },
                 ),
                 "include_empty_fields": ("BOOLEAN", {"default": False}),
-                "numeric_lens_format": ("BOOLEAN", {"default": True}),
+                "numeric_lens_format": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Deprecated. Official FLUX.2 output always uses camera.lens text instead of legacy lens-mm.",
+                    },
+                ),
                 # Frontend builder payload is injected automatically; kept optional for interoperability.
                 "builder_payload": (
                     "STRING",
@@ -350,6 +435,10 @@ class KikoFlux2PromptBuilder:
         lighting: str = "",
         color_palette: str = "",
         color_mood: str = "",
+        subject_description: str = "",
+        subject_position: str = "center foreground",
+        subject_action: str = "",
+        background: str = "",
         composition: str = "",
         include_empty_fields: bool = False,
         numeric_lens_format: bool = True,
@@ -386,6 +475,16 @@ class KikoFlux2PromptBuilder:
         )
         state["lighting"] = lighting if lighting is not None else state.get("lighting", "")
         state["colorMood"] = color_mood if color_mood is not None else state.get("colorMood", "")
+        state["subjectDescription"] = (
+            subject_description if subject_description is not None else state.get("subjectDescription", "")
+        )
+        state["subjectPosition"] = (
+            subject_position if subject_position is not None else state.get("subjectPosition", "center foreground")
+        )
+        state["subjectAction"] = (
+            subject_action if subject_action is not None else state.get("subjectAction", "")
+        )
+        state["background"] = background if background is not None else state.get("background", "")
         state["composition"] = (
             composition if composition is not None else state.get("composition", "")
         )
