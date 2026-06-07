@@ -32,6 +32,7 @@ const defaultState = () => ({
   subjectDescription: "",
   subjectPosition: "center foreground",
   subjectAction: "",
+  subjects: [],
   background: "",
   composition: "",
   includeEmpty: false,
@@ -63,6 +64,22 @@ function coercePalette(colors) {
   if (Array.isArray(colors)) return colors.map((c) => `${c}`.trim()).filter(Boolean);
   if (typeof colors === "string") return colors.split(",").map((c) => c.trim()).filter(Boolean);
   return [];
+}
+
+const commonTypoFixes = new Map([
+  ["iclandic", "Icelandic"],
+  ["brunnette", "brunette"],
+  ["brunnete", "brunette"],
+  ["brunettte", "brunette"],
+  ["victorion", "Victorian"],
+  ["victorian", "Victorian"],
+  ["alight", "a light"],
+]);
+
+function cleanText(value) {
+  const text = `${value || ""}`.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.replace(/\b(iclandic|brunnette|brunnete|brunettte|victorion|victorian|alight)\b/gi, (word) => commonTypoFixes.get(word.toLowerCase()) || word);
 }
 
 function applyPresetDefaults(state) {
@@ -125,10 +142,10 @@ function backgroundFromPrompt(prompt) {
 
 function cameraLensDescription(state) {
   const parts = [];
-  const model = `${state.cameraModel || ""}`.trim();
-  const lens = `${state.cameraLens || ""}`.trim();
-  const aperture = `${state.cameraAperture || ""}`.trim();
-  const iso = `${state.cameraISO || ""}`.trim();
+  const model = cleanText(state.cameraModel);
+  const lens = cleanText(state.cameraLens);
+  const aperture = cleanText(state.cameraAperture);
+  const iso = cleanText(state.cameraISO);
   if (model) parts.push(model);
   if (lens) parts.push(lens.toLowerCase().includes("lens") ? lens : `${lens} lens`);
   if (aperture) parts.push(aperture);
@@ -136,37 +153,69 @@ function cameraLensDescription(state) {
   return parts.join(", ");
 }
 
+function normalizeSubjects(state, palette, includeEmpty, scene) {
+  const subjects = [];
+  if (Array.isArray(state.subjects)) {
+    state.subjects.forEach((raw) => {
+      if (!raw || typeof raw !== "object") return;
+      const subjectPalette = coercePalette(raw.color_palette || raw.colors || palette);
+      const subject = {};
+      const description = cleanText(raw.description);
+      const position = cleanText(raw.position) || "center foreground";
+      const action = cleanText(raw.action);
+      if (description || includeEmpty) subject.description = description;
+      if (position || includeEmpty) subject.position = position;
+      if (action || includeEmpty) subject.action = action;
+      if (subjectPalette.length || includeEmpty) subject.color_palette = subjectPalette;
+      if (Object.keys(subject).length || includeEmpty) subjects.push(subject);
+    });
+  }
+  if (subjects.length) return subjects;
+
+  const fallback = {};
+  const description = cleanText(state.subjectDescription || firstClause(scene));
+  const position = cleanText(state.subjectPosition) || "center foreground";
+  const action = cleanText(state.subjectAction);
+  if (description || includeEmpty) fallback.description = description;
+  if (position || includeEmpty) fallback.position = position;
+  if (action || includeEmpty) fallback.action = action;
+  if (palette.length || includeEmpty) fallback.color_palette = palette;
+  return Object.keys(fallback).length || includeEmpty ? [fallback] : [];
+}
+
 function buildData(state) {
   const includeEmpty = !!state.includeEmpty;
   const palette = coercePalette(state.colors);
 
   const data = {};
-  if (state.prompt || includeEmpty) data.scene = state.prompt;
+  const scene = cleanText(state.prompt);
+  if (scene || includeEmpty) data.scene = scene;
 
-  const subject = {};
-  const subjectDescription = state.subjectDescription || firstClause(state.prompt);
-  const subjectPosition = state.subjectPosition || "center foreground";
-  const subjectAction = state.subjectAction || "";
-  if (subjectDescription || includeEmpty) subject.description = subjectDescription;
-  if (subjectPosition || includeEmpty) subject.position = subjectPosition;
-  if (subjectAction || includeEmpty) subject.action = subjectAction;
-  if (palette.length || includeEmpty) subject.color_palette = palette;
-  if (Object.keys(subject).length || includeEmpty) data.subjects = [subject];
+  const subjects = normalizeSubjects(state, palette, includeEmpty, scene);
+  if (subjects.length || includeEmpty) data.subjects = subjects;
 
-  if (state.style || includeEmpty) data.style = state.style;
+  const style = cleanText(state.style);
+  const lighting = cleanText(state.lighting);
+  const mood = cleanText(state.colorMood);
+  const background = cleanText(state.background || backgroundFromPrompt(scene));
+  const composition = cleanText(state.composition);
+
+  if (style || includeEmpty) data.style = style;
   if (palette.length || includeEmpty) data.color_palette = palette;
-  if (state.lighting || includeEmpty) data.lighting = state.lighting;
-  if (state.colorMood || includeEmpty) data.mood = state.colorMood;
-  const background = state.background || backgroundFromPrompt(state.prompt);
+  if (lighting || includeEmpty) data.lighting = lighting;
+  if (mood || includeEmpty) data.mood = mood;
   if (background || includeEmpty) data.background = background;
-  if (state.composition || includeEmpty) data.composition = state.composition;
+  if (composition || includeEmpty) data.composition = composition;
 
   const camera = {};
-  if (state.cameraAngle || includeEmpty) camera.angle = state.cameraAngle;
-  if (state.cameraShot || includeEmpty) camera.distance = state.cameraShot;
+  const cameraAngle = cleanText(state.cameraAngle);
+  const cameraShot = cleanText(state.cameraShot);
+  const cameraFocus = cleanText(state.cameraFocus);
+  if (cameraAngle || includeEmpty) camera.angle = cameraAngle;
+  if (cameraShot || includeEmpty) camera.distance = cameraShot;
   const lensDescription = cameraLensDescription(state);
   if (lensDescription || includeEmpty) camera.lens = lensDescription;
-  if (state.cameraFocus || includeEmpty) camera.depth_of_field = state.cameraFocus;
+  if (cameraFocus || includeEmpty) camera.depth_of_field = cameraFocus;
   if (Object.keys(camera).length || includeEmpty) data.camera = camera;
 
   return data;
@@ -249,6 +298,12 @@ function ensureStyles() {
   .kiko-sub-section-title::before { content: ''; width: 8px; height: 8px; background: #7c3aed; border-radius: 2px; }
 
   .kiko-inline-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+  .kiko-subject-card { background: #1f1f1f; border: 1px solid #333; border-radius: 6px; padding: 8px; margin-bottom: 8px; }
+  .kiko-subject-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: #aaa; font-size: 11px; }
+  .kiko-subject-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .kiko-small-btn { background: #333; border: 1px solid #555; border-radius: 4px; padding: 5px 8px; color: #ccc; font-size: 11px; cursor: pointer; }
+  .kiko-small-btn:hover { background: #444; border-color: #7c3aed; color: #fff; }
+  .kiko-small-btn-danger:hover { background: #4a1f1f; border-color: #ff6b6b; }
 
   /* Style selector with edit toggle */
   .kiko-style-selector { display: flex; gap: 4px; }
@@ -699,6 +754,81 @@ function updatePreview(previewEl, state) {
   previewEl.innerHTML = highlightJSON(data);
 }
 
+function renderSubjects(container, state, onChange) {
+  if (!Array.isArray(state.subjects) || !state.subjects.length) {
+    const description = state.subjectDescription || "";
+    const position = state.subjectPosition || "center foreground";
+    const action = state.subjectAction || "";
+    state.subjects = description || action ? [{ description, position, action, color_palette: coercePalette(state.colors) }] : [];
+  }
+
+  container.innerHTML = "";
+  const subjects = state.subjects;
+  subjects.forEach((subject, idx) => {
+    const card = createElement("div", "kiko-subject-card");
+    const header = createElement("div", "kiko-subject-card-header");
+    header.append(createElement("span", "", `Subject ${idx + 1}`));
+    const remove = createElement("button", "kiko-small-btn kiko-small-btn-danger", "Remove");
+    remove.onclick = () => {
+      subjects.splice(idx, 1);
+      renderSubjects(container, state, onChange);
+      onChange();
+    };
+    header.appendChild(remove);
+    card.appendChild(header);
+
+    const desc = document.createElement("input");
+    desc.type = "text";
+    desc.spellcheck = true;
+    desc.className = "kiko-field-input";
+    desc.placeholder = "Subject description, e.g. Icelandic brunette woman";
+    desc.value = subject.description || "";
+    desc.oninput = () => {
+      subject.description = desc.value;
+      state.subjectDescription = subjects[0]?.description || "";
+      onChange();
+    };
+    card.appendChild(desc);
+
+    const row = createElement("div", "kiko-inline-fields");
+    const pos = document.createElement("input");
+    pos.type = "text";
+    pos.spellcheck = true;
+    pos.className = "kiko-field-input";
+    pos.placeholder = "center foreground";
+    pos.value = subject.position || "center foreground";
+    pos.oninput = () => {
+      subject.position = pos.value;
+      state.subjectPosition = subjects[0]?.position || "center foreground";
+      onChange();
+    };
+    const action = document.createElement("input");
+    action.type = "text";
+    action.spellcheck = true;
+    action.className = "kiko-field-input";
+    action.placeholder = "lying on a bed, holding hands";
+    action.value = subject.action || "";
+    action.oninput = () => {
+      subject.action = action.value;
+      state.subjectAction = subjects[0]?.action || "";
+      onChange();
+    };
+    row.append(pos, action);
+    card.appendChild(row);
+    container.appendChild(card);
+  });
+
+  const actions = createElement("div", "kiko-subject-actions");
+  const addBtn = createElement("button", "kiko-small-btn", "+ Add Subject");
+  addBtn.onclick = () => {
+    subjects.push({ description: "", position: subjects.length ? "right center foreground" : "center foreground", action: "", color_palette: coercePalette(state.colors) });
+    renderSubjects(container, state, onChange);
+    onChange();
+  };
+  actions.appendChild(addBtn);
+  container.appendChild(actions);
+}
+
 function renderColors(container, state, onChange) {
   container.innerHTML = "";
   const colors = coercePalette(state.colors);
@@ -832,45 +962,9 @@ function renderForm(uiParts, state) {
   const structureSection = createElement("div", "kiko-sub-section");
   structureSection.appendChild(createElement("div", "kiko-sub-section-title", "Official FLUX.2 Structure"));
 
-  const subjectDescInput = document.createElement("input");
-  subjectDescInput.type = "text";
-  subjectDescInput.className = "kiko-field-input";
-  subjectDescInput.placeholder = "Main subject; inferred from scene if blank";
-  subjectDescInput.value = state.subjectDescription || "";
-  subjectDescInput.oninput = () => {
-    state.subjectDescription = subjectDescInput.value;
-    update();
-  };
-  structureSection.appendChild(fieldGroup("Subject Description", subjectDescInput));
-
-  const subjectRow = createElement("div", "kiko-inline-fields");
-  const subjectPositionGroup = createElement("div", "kiko-field-group");
-  subjectPositionGroup.appendChild(createElement("div", "kiko-field-label", "Subject Position"));
-  const subjectPositionInput = document.createElement("input");
-  subjectPositionInput.type = "text";
-  subjectPositionInput.className = "kiko-field-input";
-  subjectPositionInput.placeholder = "center foreground";
-  subjectPositionInput.value = state.subjectPosition || "center foreground";
-  subjectPositionInput.oninput = () => {
-    state.subjectPosition = subjectPositionInput.value;
-    update();
-  };
-  subjectPositionGroup.appendChild(subjectPositionInput);
-
-  const subjectActionGroup = createElement("div", "kiko-field-group");
-  subjectActionGroup.appendChild(createElement("div", "kiko-field-label", "Subject Action"));
-  const subjectActionInput = document.createElement("input");
-  subjectActionInput.type = "text";
-  subjectActionInput.className = "kiko-field-input";
-  subjectActionInput.placeholder = "gliding, standing, stationary";
-  subjectActionInput.value = state.subjectAction || "";
-  subjectActionInput.oninput = () => {
-    state.subjectAction = subjectActionInput.value;
-    update();
-  };
-  subjectActionGroup.appendChild(subjectActionInput);
-  subjectRow.append(subjectPositionGroup, subjectActionGroup);
-  structureSection.appendChild(subjectRow);
+  const subjectContainer = createElement("div", "kiko-subject-list");
+  renderSubjects(subjectContainer, state, update);
+  structureSection.appendChild(fieldGroup("Subjects", subjectContainer));
 
   const backgroundInput = document.createElement("input");
   backgroundInput.type = "text";
@@ -1148,6 +1242,9 @@ function renderForm(uiParts, state) {
   body.appendChild(outputSection);
 
   // JSON Preview
+  body.querySelectorAll("input[type='text'], textarea").forEach((el) => {
+    el.spellcheck = true;
+  });
   body.appendChild(previewEl);
   update();
 

@@ -78,6 +78,7 @@ def _default_state() -> Dict[str, Any]:
         "subjectDescription": "",
         "subjectPosition": "center foreground",
         "subjectAction": "",
+        "subjects": [],
         "background": "",
         "composition": "",
         "includeEmpty": False,
@@ -140,6 +141,37 @@ def _coerce_palette(value: Any) -> List[str]:
     return []
 
 
+COMMON_TYPO_FIXES = {
+    "iclandic": "Icelandic",
+    "brunnette": "brunette",
+    "brunnete": "brunette",
+    "brunettte": "brunette",
+    "victorion": "Victorian",
+    "victorian": "Victorian",
+    "alight": "a light",
+}
+
+
+def _clean_text(value: Any) -> str:
+    """Clean common prompt typos without pretending to be a full editor."""
+    import re
+
+    text = " ".join(str(value or "").split())
+    if not text:
+        return ""
+
+    def repl(match: re.Match[str]) -> str:
+        word = match.group(0)
+        return COMMON_TYPO_FIXES.get(word.lower(), word)
+
+    return re.sub(
+        r"\b(iclandic|brunnette|brunnete|brunettte|victorion|victorian|alight)\b",
+        repl,
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
 def _first_clause(text: str) -> str:
     """Return the first useful clause from a scene prompt for subject fallback."""
     clean = " ".join(str(text or "").split())
@@ -174,10 +206,10 @@ def _background_from_prompt(prompt: str) -> str:
 
 def _camera_lens_description(camera_lens: Any, camera_aperture: Any, camera_iso: Any, camera_model: Any) -> str:
     parts: List[str] = []
-    model = str(camera_model or "").strip()
-    lens = str(camera_lens or "").strip()
-    aperture = str(camera_aperture or "").strip()
-    iso = str(camera_iso or "").strip()
+    model = _clean_text(camera_model)
+    lens = _clean_text(camera_lens)
+    aperture = _clean_text(camera_aperture)
+    iso = _clean_text(camera_iso)
 
     if model:
         parts.append(model)
@@ -188,6 +220,49 @@ def _camera_lens_description(camera_lens: Any, camera_aperture: Any, camera_iso:
     if iso:
         parts.append(f"ISO {iso}")
     return ", ".join(parts)
+
+
+def _normalize_subjects(state: Dict[str, Any], palette: List[str], include_empty: bool, prompt: str) -> List[Dict[str, Any]]:
+    raw_subjects = state.get("subjects")
+    subjects: List[Dict[str, Any]] = []
+
+    if isinstance(raw_subjects, list):
+        for raw in raw_subjects:
+            if not isinstance(raw, dict):
+                continue
+            description = _clean_text(raw.get("description"))
+            position = _clean_text(raw.get("position")) or "center foreground"
+            action = _clean_text(raw.get("action"))
+            subject_palette = _coerce_palette(raw.get("color_palette") or raw.get("colors") or palette)
+
+            subject: Dict[str, Any] = {}
+            if description or include_empty:
+                subject["description"] = description
+            if position or include_empty:
+                subject["position"] = position
+            if action or include_empty:
+                subject["action"] = action
+            if subject_palette or include_empty:
+                subject["color_palette"] = subject_palette
+            if subject or include_empty:
+                subjects.append(subject)
+
+    if subjects:
+        return subjects
+
+    subject_description = _clean_text(state.get("subjectDescription") or _first_clause(prompt))
+    subject_position = _clean_text(state.get("subjectPosition") or "center foreground")
+    subject_action = _clean_text(state.get("subjectAction") or "")
+    subject: Dict[str, Any] = {}
+    if subject_description or include_empty:
+        subject["description"] = subject_description
+    if subject_position or include_empty:
+        subject["position"] = subject_position
+    if subject_action or include_empty:
+        subject["action"] = subject_action
+    if palette or include_empty:
+        subject["color_palette"] = palette
+    return [subject] if subject or include_empty else []
 
 
 def _build_data(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -201,40 +276,28 @@ def _build_data(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     include_empty = bool(state.get("includeEmpty"))
 
-    prompt = str(state.get("prompt", "") or "")
-    style = str(state.get("style", "") or "")
-    camera_angle = str(state.get("cameraAngle", "") or "")
-    camera_shot = str(state.get("cameraShot", "") or "")
+    prompt = _clean_text(state.get("prompt", ""))
+    style = _clean_text(state.get("style", ""))
+    camera_angle = _clean_text(state.get("cameraAngle", ""))
+    camera_shot = _clean_text(state.get("cameraShot", ""))
     camera_lens = state.get("cameraLens", "")
     camera_aperture = state.get("cameraAperture", "")
     camera_iso = state.get("cameraISO", "")
-    camera_focus = str(state.get("cameraFocus", "") or "")
+    camera_focus = _clean_text(state.get("cameraFocus", ""))
     camera_model = state.get("cameraModel", "")
-    lighting = str(state.get("lighting", "") or "")
+    lighting = _clean_text(state.get("lighting", ""))
     palette = _coerce_palette(state.get("colors", []))
-    color_mood = str(state.get("colorMood", "") or "")
-    composition = str(state.get("composition", "") or "")
-    background = str(state.get("background", "") or _background_from_prompt(prompt))
-
-    subject_description = str(state.get("subjectDescription", "") or _first_clause(prompt))
-    subject_position = str(state.get("subjectPosition", "") or "center foreground")
-    subject_action = str(state.get("subjectAction", "") or "")
+    color_mood = _clean_text(state.get("colorMood", ""))
+    composition = _clean_text(state.get("composition", ""))
+    background = _clean_text(state.get("background", "") or _background_from_prompt(prompt))
 
     data: Dict[str, Any] = {}
     if prompt or include_empty:
         data["scene"] = prompt
 
-    subject: Dict[str, Any] = {}
-    if subject_description or include_empty:
-        subject["description"] = subject_description
-    if subject_position or include_empty:
-        subject["position"] = subject_position
-    if subject_action or include_empty:
-        subject["action"] = subject_action
-    if palette or include_empty:
-        subject["color_palette"] = palette
-    if subject or include_empty:
-        data["subjects"] = [subject]
+    subjects = _normalize_subjects(state, palette, include_empty, prompt)
+    if subjects or include_empty:
+        data["subjects"] = subjects
 
     if style or include_empty:
         data["style"] = style

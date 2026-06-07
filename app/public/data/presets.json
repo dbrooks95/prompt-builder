@@ -158,5 +158,21 @@
     "lighting": "natural window light, soft directional lighting, gentle shadows",
     "colors": { "palette": ["#F5DEB3", "#FFE4C4", "#D4A574", "#8B4513", "#1C1C1C"], "mood": "sensual mood, intimate atmosphere, passionate feeling, artistic expression" },
     "composition": "artistic nude composition, curves and shadows, tasteful framing, fine art aesthetic"
+  },
+  "crt_90s": {
+    "prompt": "A nostalgic 1990s CRT television frame showing the requested subject as if captured from analog broadcast video, with curved glass distortion, visible scanlines, phosphor glow, soft corner blur, slight horizontal tracking noise, and faint VHS color bleed.",
+    "style": "90s CRT broadcast still, analog video degradation, VHS texture, visible scanlines, chromatic bleed, phosphor glow, soft focus edges, nostalgic home-recording atmosphere",
+    "camera": { "angle": "straight on", "shot": "medium shot", "lens": "wide fisheye", "aperture": "f/4", "iso": "800", "focus": "Soft CRT screen focus with edge distortion and scanline texture", "model": "captured from a 1990s CRT television / VHS frame grab" },
+    "lighting": "cool phosphor screen glow, low ambient room light, slight bloom around bright highlights, muted analog contrast",
+    "colors": { "palette": ["#05070A", "#1E2A44", "#00A6D6", "#D94FD5", "#E8E0C8"], "mood": "nostalgic analog mood, late-night television atmosphere, dreamy degraded video feel" },
+    "composition": "centered screen composition, slight barrel distortion, safe-title framing, soft vignette corners"
+  },
+  "digicam_2000s": {
+    "prompt": "An early 2000s consumer digital camera snapshot of the requested subject, imperfectly framed with harsh direct flash, compressed JPEG artifacts, shiny highlights, crushed shadows, slight red-eye risk, and casual candid energy.",
+    "style": "early 2000s digital photo, consumer snapshot aesthetic, low-megapixel sensor look, direct flash realism, JPEG compression, casual MySpace-era nostalgia",
+    "camera": { "angle": "eye level", "shot": "medium shot", "lens": "35mm equivalent", "aperture": "f/3.5", "iso": "400", "focus": "Autofocus locked on the main subject with slight softness and compression artifacts", "model": "early 2000s point-and-shoot digital camera with built-in front flash" },
+    "lighting": "harsh on-camera flash, bright frontal highlights, dark falloff behind the subject, blown whites, crushed background shadows",
+    "colors": { "palette": ["#F6D2B8", "#FFF7E6", "#1A1A1A", "#6B7280", "#3B82F6"], "mood": "candid nostalgic mood, imperfect casual snapshot, early internet photo album energy" },
+    "composition": "casual off-center snapshot composition, imperfect crop, subject near center with cluttered real-life background"
   }
 }

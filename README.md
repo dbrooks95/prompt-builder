@@ -18,6 +18,8 @@ A visual prompt builder [ComfyUI](https://www.comfy.org/) custom node for struct
 - **Professional Lighting Presets**: Natural light, studio setups, dramatic/cinematic options
 - **Composition Guidelines**: Rule of thirds, golden ratio, leading lines, symmetrical, and more
 - **Color Palette Builder**: Visual color swatches with hex support
+- **Multi-subject Builder**: Add/remove separate subject rows so people, props, and creatures can get their own structured entries
+- **Light Prompt Cleanup**: Browser spellcheck is enabled on text fields and common typo normalization is applied before JSON output
 - **Mood Presets**: Emotional tones and visual aesthetics
 - **Dual Output**: Structured JSON and flattened text prompt formats
 - **Context Menu**: Quick preset access, copy JSON, reset to defaults
@@ -106,6 +108,7 @@ A weathered fisherman... Style: documentary photography... Camera: eye level ang
 | **Action & Events** | Sports, Street, Theatrical, Culinary |
 | **Commercial** | Product, Automotive, Architectural |
 | **Artistic** | Cinematic, Vintage, Minimalist |
+| **Retro** | 90s CRT Broadcast, Early 2000s Digicam Flash |
 
 ## 📷 Camera Settings
 
@@ -146,8 +149,8 @@ ln -s $(pwd) /path/to/ComfyUI/custom_nodes/kiko-flux2-prompt-builder
 # Install dev dependencies (optional)
 pip install -e ".[dev]"
 
-# Run tests
-pytest -v
+# Run smoke tests
+python3 tests/test_prompt_builder.py
 ```
 
 ## 🤝 Contributing
