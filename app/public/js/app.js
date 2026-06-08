@@ -677,7 +677,7 @@ function initApp() {
 
   // Add color button
   addColorBtn.addEventListener('click', () => {
-    colors.push('');
+    colors.push('#FFFFFF');
     renderColors();
     const inputs = colorPalette.querySelectorAll('input');
     inputs[inputs.length - 1].focus();

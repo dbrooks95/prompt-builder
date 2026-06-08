@@ -411,10 +411,10 @@ class KikoFlux2PromptBuilder:
             },
             "optional": {
                 "preset": (
-                    PRESET_NAMES,
+                    "STRING",
                     {
                         "default": "custom",
-                        "tooltip": "Load preset values; custom keeps your manual fields",
+                        "tooltip": "Preset key. The visual builder stores local custom presets in builder_payload, so arbitrary custom:<name> values are allowed.",
                     },
                 ),
                 "style": ("STRING", {"default": "", "placeholder": "Visual style or reference"}),

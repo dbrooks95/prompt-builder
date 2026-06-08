@@ -536,7 +536,13 @@ function syncWidgets(node, state) {
       widget.value = coercePalette(state.colors).join(", ");
       return;
     }
-    const value = state[stateKey];
+    let value = state[stateKey];
+    // Custom presets are stored in browser localStorage and restored through
+    // builder_payload. Do not write custom:<slug> into ComfyUI's preset input:
+    // Comfy validates list-style preset inputs before the frontend can repair them.
+    if (widgetName === "preset" && typeof value === "string" && value.startsWith("custom:")) {
+      value = "custom";
+    }
     widget.value = typeof value === "boolean" ? value : value ?? "";
   });
 }
@@ -985,7 +991,7 @@ function renderColors(container, state, onChange) {
 
   const addBtn = createElement("button", "kiko-add-color-btn", "+ Add Color");
   addBtn.onclick = () => {
-    colors.push("");
+    colors.push("#FFFFFF");
     state.colors = [...colors];
     renderColors(container, state, onChange);
     onChange();
