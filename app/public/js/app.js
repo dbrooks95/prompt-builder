@@ -313,7 +313,7 @@ function generateJSON() {
   if (lightingInput.value || shouldIncludeEmpty) data.lighting = lightingInput.value;
   if (colorMood.value || shouldIncludeEmpty) data.mood = colorMood.value;
 
-  const background = backgroundFromPrompt(promptInput.value);
+  const background = backgroundFromPrompt(promptInput.value) || (promptInput.value ? 'Environment and surrounding context as described in the scene.' : '');
   if (background || shouldIncludeEmpty) data.background = background;
 
   if (compositionInput.value || shouldIncludeEmpty) data.composition = compositionInput.value;

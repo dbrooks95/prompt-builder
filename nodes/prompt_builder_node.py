@@ -75,6 +75,7 @@ def _default_state() -> Dict[str, Any]:
         "lighting": "",
         "colors": ["#2A5BDA", "amber glow"],
         "colorMood": "",
+        "subjectType": "",
         "subjectDescription": "",
         "subjectPosition": "center foreground",
         "subjectAction": "",
@@ -230,12 +231,15 @@ def _normalize_subjects(state: Dict[str, Any], palette: List[str], include_empty
         for raw in raw_subjects:
             if not isinstance(raw, dict):
                 continue
+            subject_type = _clean_text(raw.get("type"))
             description = _clean_text(raw.get("description"))
             position = _clean_text(raw.get("position")) or "center foreground"
             action = _clean_text(raw.get("action"))
             subject_palette = _coerce_palette(raw.get("color_palette") or raw.get("colors") or palette)
 
             subject: Dict[str, Any] = {}
+            if subject_type or include_empty:
+                subject["type"] = subject_type
             if description or include_empty:
                 subject["description"] = description
             if position or include_empty:
@@ -250,10 +254,13 @@ def _normalize_subjects(state: Dict[str, Any], palette: List[str], include_empty
     if subjects:
         return subjects
 
+    subject_type = _clean_text(state.get("subjectType") or "")
     subject_description = _clean_text(state.get("subjectDescription") or _first_clause(prompt))
     subject_position = _clean_text(state.get("subjectPosition") or "center foreground")
     subject_action = _clean_text(state.get("subjectAction") or "")
     subject: Dict[str, Any] = {}
+    if subject_type or include_empty:
+        subject["type"] = subject_type
     if subject_description or include_empty:
         subject["description"] = subject_description
     if subject_position or include_empty:
@@ -289,7 +296,9 @@ def _build_data(state: Dict[str, Any]) -> Dict[str, Any]:
     palette = _coerce_palette(state.get("colors", []))
     color_mood = _clean_text(state.get("colorMood", ""))
     composition = _clean_text(state.get("composition", ""))
-    background = _clean_text(state.get("background", "") or _background_from_prompt(prompt))
+    background = _clean_text(state.get("background", "") or _background_from_prompt(prompt)) or (
+        "Environment and surrounding context as described in the scene." if prompt else ""
+    )
 
     data: Dict[str, Any] = {}
     if prompt or include_empty:
@@ -339,12 +348,17 @@ def _build_text_prompt(data: Dict[str, Any]) -> str:
     for subject in subjects:
         if not isinstance(subject, dict):
             continue
-        desc = subject.get("description")
+        subject_type = subject.get("type")
+        desc = subject.get("description") or subject_type
         position = subject.get("position")
         action = subject.get("action")
+        subject_palette = subject.get("color_palette") or []
         if desc:
-            subject_text = f"Subject: {desc}"
+            label = f"{subject_type}: " if subject_type else "Subject: "
+            subject_text = f"{label}{desc}"
             extras = [v for v in [position, action] if v]
+            if subject_palette:
+                extras.append(f"colors {', '.join(subject_palette)}")
             if extras:
                 subject_text += f" ({', '.join(extras)})"
             parts.append(subject_text)
@@ -443,6 +457,10 @@ class KikoFlux2PromptBuilder:
                     },
                 ),
                 "color_mood": ("STRING", {"default": "", "placeholder": "e.g., moody atmosphere"}),
+                "subject_type": (
+                    "STRING",
+                    {"default": "", "placeholder": "Optional subject type, e.g., Text Sign, Detective, Prop"},
+                ),
                 "subject_description": (
                     "STRING",
                     {"default": "", "placeholder": "Main subject; inferred from scene if empty"},
@@ -498,6 +516,7 @@ class KikoFlux2PromptBuilder:
         lighting: str = "",
         color_palette: str = "",
         color_mood: str = "",
+        subject_type: str = "",
         subject_description: str = "",
         subject_position: str = "center foreground",
         subject_action: str = "",
@@ -538,6 +557,7 @@ class KikoFlux2PromptBuilder:
         )
         state["lighting"] = lighting if lighting is not None else state.get("lighting", "")
         state["colorMood"] = color_mood if color_mood is not None else state.get("colorMood", "")
+        state["subjectType"] = subject_type if subject_type is not None else state.get("subjectType", "")
         state["subjectDescription"] = (
             subject_description if subject_description is not None else state.get("subjectDescription", "")
         )

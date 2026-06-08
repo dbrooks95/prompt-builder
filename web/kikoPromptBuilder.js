@@ -54,6 +54,7 @@ const defaultState = () => ({
   lighting: "",
   colors: [],
   colorMood: "",
+  subjectType: "",
   subjectDescription: "",
   subjectPosition: "center foreground",
   subjectAction: "",
@@ -245,9 +246,11 @@ function normalizeSubjects(state, palette, includeEmpty, scene) {
       if (!raw || typeof raw !== "object") return;
       const subjectPalette = coercePalette(raw.color_palette || raw.colors || palette);
       const subject = {};
+      const type = cleanText(raw.type);
       const description = cleanText(raw.description);
       const position = cleanText(raw.position) || "center foreground";
       const action = cleanText(raw.action);
+      if (type || includeEmpty) subject.type = type;
       if (description || includeEmpty) subject.description = description;
       if (position || includeEmpty) subject.position = position;
       if (action || includeEmpty) subject.action = action;
@@ -258,9 +261,11 @@ function normalizeSubjects(state, palette, includeEmpty, scene) {
   if (subjects.length) return subjects;
 
   const fallback = {};
+  const type = cleanText(state.subjectType);
   const description = cleanText(state.subjectDescription || firstClause(scene));
   const position = cleanText(state.subjectPosition) || "center foreground";
   const action = cleanText(state.subjectAction);
+  if (type || includeEmpty) fallback.type = type;
   if (description || includeEmpty) fallback.description = description;
   if (position || includeEmpty) fallback.position = position;
   if (action || includeEmpty) fallback.action = action;
@@ -282,7 +287,7 @@ function buildData(state) {
   const style = cleanText(state.style);
   const lighting = cleanText(state.lighting);
   const mood = cleanText(state.colorMood);
-  const background = cleanText(state.background || backgroundFromPrompt(scene));
+  const background = cleanText(state.background || backgroundFromPrompt(scene)) || (scene ? "Environment and surrounding context as described in the scene." : "");
   const composition = cleanText(state.composition);
 
   if (style || includeEmpty) data.style = style;
@@ -312,9 +317,11 @@ function buildText(data) {
   if (data.style) parts.push(`Style: ${data.style}`);
 
   (data.subjects || []).forEach((subject) => {
-    if (!subject?.description) return;
-    const extras = [subject.position, subject.action].filter(Boolean);
-    parts.push(`Subject: ${subject.description}${extras.length ? ` (${extras.join(", ")})` : ""}`);
+    if (!subject?.description && !subject?.type) return;
+    const label = subject.type ? `${subject.type}: ` : "Subject: ";
+    const desc = subject.description || subject.type;
+    const extras = [subject.position, subject.action, subject.color_palette?.length ? `colors ${subject.color_palette.join(", ")}` : ""].filter(Boolean);
+    parts.push(`${label}${desc}${extras.length ? ` (${extras.join(", ")})` : ""}`);
   });
 
   const camera = data.camera || {};
@@ -886,14 +893,18 @@ function renderSubjects(container, state, onChange) {
     header.appendChild(remove);
     card.appendChild(header);
 
-    const desc = createTextarea(subject.description || "", "Subject description, e.g. Icelandic brunette woman", (v) => {
-      subject.description = v;
-      state.subjectDescription = subjects[0]?.description || "";
-      onChange();
-    }, "kiko-short-textarea");
-    card.appendChild(desc);
-
     const row = createElement("div", "kiko-inline-fields");
+    const type = document.createElement("input");
+    type.type = "text";
+    type.spellcheck = true;
+    type.className = "kiko-field-input";
+    type.placeholder = "type, e.g. Detective, Text Sign, Prop";
+    type.value = subject.type || "";
+    type.oninput = () => {
+      subject.type = type.value;
+      state.subjectType = subjects[0]?.type || "";
+      onChange();
+    };
     const pos = document.createElement("input");
     pos.type = "text";
     pos.spellcheck = true;
@@ -905,20 +916,35 @@ function renderSubjects(container, state, onChange) {
       state.subjectPosition = subjects[0]?.position || "center foreground";
       onChange();
     };
-    const action = createTextarea(subject.action || "", "lying on a bed, holding hands", (v) => {
+    row.append(type, pos);
+    card.appendChild(row);
+
+    const desc = createTextarea(subject.description || "", "Subject description, e.g. vertical neon sign with readable text \"FLUX\"", (v) => {
+      subject.description = v;
+      state.subjectDescription = subjects[0]?.description || "";
+      onChange();
+    }, "kiko-short-textarea");
+    card.appendChild(desc);
+
+    const action = createTextarea(subject.action || "", "action/state, e.g. stationary wall-mounted sign flickering through rain", (v) => {
       subject.action = v;
       state.subjectAction = subjects[0]?.action || "";
       onChange();
     }, "kiko-short-textarea");
-    row.append(pos, action);
-    card.appendChild(row);
+    card.appendChild(action);
+
+    const subjectColors = createTextarea(coercePalette(subject.color_palette || subject.colors || state.colors).join(", "), "Subject colors, e.g. #39FF14, #0D0D0D, #4A4A4A", (v) => {
+      subject.color_palette = coercePalette(v);
+      onChange();
+    }, "kiko-short-textarea");
+    card.appendChild(subjectColors);
     container.appendChild(card);
   });
 
   const actions = createElement("div", "kiko-subject-actions");
   const addBtn = createElement("button", "kiko-small-btn", "+ Add Subject");
   addBtn.onclick = () => {
-    subjects.push({ description: "", position: subjects.length ? "right center foreground" : "center foreground", action: "", color_palette: coercePalette(state.colors) });
+    subjects.push({ type: "", description: "", position: subjects.length ? "right center foreground" : "center foreground", action: "", color_palette: coercePalette(state.colors) });
     renderSubjects(container, state, onChange);
     onChange();
   };
