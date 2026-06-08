@@ -4,6 +4,8 @@ const EXTENSION_ID = "kiko-flux2-prompt-builder";
 const NODE_NAME = "KikoFlux2PromptBuilder";
 const ASSET_BASE = `/extensions/${EXTENSION_ID}`;
 const API_BASE = `/${EXTENSION_ID}`;
+const CUSTOM_PRESETS_KEY = "kikoFlux2CustomPresets";
+
 
 const dataCache = {
   loaded: false,
@@ -14,6 +16,29 @@ const dataCache = {
   mood: {},
   composition: {},
 };
+
+function loadCustomPresets() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CUSTOM_PRESETS_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (err) {
+    console.warn("Kiko builder: failed to load custom presets", err);
+    return {};
+  }
+}
+
+function saveCustomPresets(presets) {
+  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(presets || {}));
+}
+
+function slugifyPresetName(name) {
+  return `${name || ""}`
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
 
 const defaultState = () => ({
   preset: "custom",
@@ -108,6 +133,66 @@ function applyPresetDefaults(state) {
   next.colorMood = colors.mood || "";
   next.composition = preset.composition || "";
   return next;
+}
+
+function applyCustomPresetDefaults(state) {
+  if (!state.preset || !state.preset.startsWith("custom:")) return state;
+  const key = state.preset.slice("custom:".length);
+  const custom = loadCustomPresets()[key];
+  if (!custom?.state) return state;
+  const next = { ...defaultState(), ...cloneState(custom.state), preset: state.preset };
+  return next;
+}
+
+function presetLabelMap() {
+  const options = [{ value: "custom", label: "— Select a preset —" }];
+  Object.keys(dataCache.presets || {}).forEach((key) => {
+    options.push({ value: key, label: dataCache.presets[key].name || key });
+  });
+  const customPresets = loadCustomPresets();
+  const customKeys = Object.keys(customPresets).sort((a, b) => (customPresets[a].name || a).localeCompare(customPresets[b].name || b));
+  if (customKeys.length) {
+    options.push({ value: "", label: "── My Presets ──", disabled: true });
+    customKeys.forEach((key) => options.push({ value: `custom:${key}`, label: customPresets[key].name || key }));
+  }
+  return options;
+}
+
+function saveCurrentAsCustomPreset(state) {
+  const suggested = state.preset?.startsWith("custom:") ? loadCustomPresets()[state.preset.slice(7)]?.name : "";
+  const name = window.prompt("Save current builder settings as preset:", suggested || "My FLUX preset");
+  if (!name) return null;
+  const key = slugifyPresetName(name);
+  if (!key) return null;
+  const presets = loadCustomPresets();
+  const savedState = cloneState(state);
+  savedState.preset = `custom:${key}`;
+  presets[key] = { name: name.trim(), state: savedState, savedAt: new Date().toISOString() };
+  saveCustomPresets(presets);
+  state.preset = `custom:${key}`;
+  return state.preset;
+}
+
+function deleteCurrentCustomPreset(state) {
+  if (!state.preset?.startsWith("custom:")) return false;
+  const key = state.preset.slice("custom:".length);
+  const presets = loadCustomPresets();
+  const name = presets[key]?.name || key;
+  if (!window.confirm(`Delete custom preset "${name}"?`)) return false;
+  delete presets[key];
+  saveCustomPresets(presets);
+  state.preset = "custom";
+  return true;
+}
+
+function createTextarea(value, placeholder, onInput, extraClass = "") {
+  const textarea = document.createElement("textarea");
+  textarea.className = `kiko-field-input kiko-multiline-input ${extraClass}`.trim();
+  textarea.placeholder = placeholder || "";
+  textarea.value = value || "";
+  textarea.spellcheck = true;
+  textarea.oninput = () => onInput(textarea.value);
+  return textarea;
 }
 
 function firstClause(text) {
@@ -268,7 +353,7 @@ function ensureStyles() {
   .kiko-overlay ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #7c3aed 0%, #5b21b6 100%); border-radius: 5px; border: 2px solid #1a1a2e; }
   .kiko-overlay ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #8b5cf6 0%, #6d28d9 100%); }
 
-  .kiko-overlay { position: fixed; inset: 0; background: rgba(12,12,14,0.75); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 9999; font-family: 'Segoe UI', system-ui, sans-serif; }
+  .kiko-overlay { position: fixed; inset: 0; background: rgba(12,12,14,0.75); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 9999; font-family: 'Segoe UI', system-ui, sans-serif; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
   .kiko-overlay.show { display: flex; }
 
   .kiko-node { background: #2a2a2a; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); width: min(420px, 94vw); max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
@@ -289,6 +374,8 @@ function ensureStyles() {
   .kiko-field-input:focus { outline: none; border-color: #7c3aed; }
   .kiko-field-input::placeholder { color: #555; }
   textarea.kiko-field-input { min-height: 80px; resize: vertical; font-family: inherit; line-height: 1.5; }
+  textarea.kiko-multiline-input { min-height: 44px; max-height: 220px; }
+  textarea.kiko-short-textarea { min-height: 38px; }
   select.kiko-field-input { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px; }
   select.kiko-field-input optgroup { background: #1e1e1e; color: #888; font-style: normal; font-weight: 600; }
   select.kiko-field-input option { background: #1e1e1e; color: #e0e0e0; padding: 4px; }
@@ -376,9 +463,10 @@ function ensureStyles() {
 
   /* Preset section */
   .kiko-preset-section { margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid #3a3a3a; }
+  .kiko-preset-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 
   /* Footer */
-  .kiko-node-footer { padding: 10px 12px; border-top: 1px solid #3a3a3a; display: flex; justify-content: flex-end; gap: 8px; background: #222; }
+  .kiko-node-footer { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #3a3a3a; display: flex; justify-content: flex-end; gap: 8px; background: #222; position: sticky; bottom: 0; z-index: 5; }
   .kiko-btn { padding: 8px 16px; border-radius: 4px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
   .kiko-btn-primary { background: linear-gradient(135deg, #5a4fcf 0%, #7c3aed 100%); color: white; }
   .kiko-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3); }
@@ -390,6 +478,20 @@ function ensureStyles() {
   .kiko-json-preview .kiko-json-key { color: #9cdcfe; }
   .kiko-json-preview .kiko-json-string { color: #ce9178; }
   .kiko-json-preview .kiko-json-number { color: #b5cea8; }
+
+  @media (max-width: 640px) {
+    .kiko-overlay { align-items: stretch; justify-content: stretch; padding: 0; }
+    .kiko-node { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+    .kiko-node-header { padding-top: calc(10px + env(safe-area-inset-top)); }
+    .kiko-node-body { padding: 10px; -webkit-overflow-scrolling: touch; }
+    .kiko-inline-fields { grid-template-columns: 1fr; }
+    .kiko-style-selector { align-items: stretch; }
+    .kiko-style-selector.edit-mode { flex-direction: column; }
+    .kiko-style-selector.edit-mode .kiko-edit-toggle { width: 100%; height: 34px; }
+    .kiko-node-footer { justify-content: stretch; }
+    .kiko-node-footer .kiko-btn { flex: 1; min-height: 44px; font-size: 14px; }
+    .kiko-preset-actions .kiko-small-btn { flex: 1; min-height: 36px; }
+  }
   `;
   document.head.appendChild(style);
 }
@@ -593,7 +695,7 @@ async function openBuilder(node) {
   if (!ui) ui = createOverlay();
 
   currentNode = node;
-  currentState = applyPresetDefaults(cloneState(node.kikoState || defaultState()));
+  currentState = applyCustomPresetDefaults(applyPresetDefaults(cloneState(node.kikoState || defaultState())));
 
   renderForm(ui, currentState);
   ui.overlay.classList.add("show");
@@ -720,8 +822,9 @@ function createStyleSelector(dropdown, textInput, currentValue, onChange) {
     onChange(dropdown.value);
   };
 
-  textInput.type = "text";
-  textInput.className = "kiko-field-input kiko-style-text";
+  if (textInput.tagName === "INPUT") textInput.type = "text";
+  textInput.className = "kiko-field-input kiko-style-text kiko-multiline-input";
+  textInput.spellcheck = true;
   textInput.value = currentValue || "";
   textInput.oninput = () => {
     onChange(textInput.value);
@@ -777,17 +880,11 @@ function renderSubjects(container, state, onChange) {
     header.appendChild(remove);
     card.appendChild(header);
 
-    const desc = document.createElement("input");
-    desc.type = "text";
-    desc.spellcheck = true;
-    desc.className = "kiko-field-input";
-    desc.placeholder = "Subject description, e.g. Icelandic brunette woman";
-    desc.value = subject.description || "";
-    desc.oninput = () => {
-      subject.description = desc.value;
+    const desc = createTextarea(subject.description || "", "Subject description, e.g. Icelandic brunette woman", (v) => {
+      subject.description = v;
       state.subjectDescription = subjects[0]?.description || "";
       onChange();
-    };
+    }, "kiko-short-textarea");
     card.appendChild(desc);
 
     const row = createElement("div", "kiko-inline-fields");
@@ -802,17 +899,11 @@ function renderSubjects(container, state, onChange) {
       state.subjectPosition = subjects[0]?.position || "center foreground";
       onChange();
     };
-    const action = document.createElement("input");
-    action.type = "text";
-    action.spellcheck = true;
-    action.className = "kiko-field-input";
-    action.placeholder = "lying on a bed, holding hands";
-    action.value = subject.action || "";
-    action.oninput = () => {
-      subject.action = action.value;
+    const action = createTextarea(subject.action || "", "lying on a bed, holding hands", (v) => {
+      subject.action = v;
       state.subjectAction = subjects[0]?.action || "";
       onChange();
-    };
+    }, "kiko-short-textarea");
     row.append(pos, action);
     card.appendChild(row);
     container.appendChild(card);
@@ -919,39 +1010,45 @@ function renderForm(uiParts, state) {
 
   // Preset section
   const presetSection = createElement("div", "kiko-preset-section");
-  const presetOptions = [{ value: "custom", label: "— Select a preset —" }];
-  Object.keys(dataCache.presets || {}).forEach((key) => {
-    presetOptions.push({ value: key, label: dataCache.presets[key].name || key });
-  });
-  const presetSelect = buildSelect(presetOptions, state.preset);
+  const presetSelect = buildSelect(presetLabelMap(), state.preset);
   presetSelect.onchange = () => {
     state.preset = presetSelect.value || "custom";
-    if (state.preset !== "custom") {
+    if (state.preset.startsWith("custom:")) {
+      Object.assign(state, applyCustomPresetDefaults({ ...defaultState(), preset: state.preset }));
+    } else if (state.preset !== "custom") {
       const merged = applyPresetDefaults({ ...defaultState(), preset: state.preset });
       Object.assign(state, merged);
     }
     renderForm(uiParts, state);
   };
   presetSection.appendChild(fieldGroup("Load Preset", presetSelect));
+  const presetActions = createElement("div", "kiko-preset-actions");
+  const savePresetBtn = createElement("button", "kiko-small-btn", "Save Current as Preset");
+  savePresetBtn.onclick = () => {
+    if (saveCurrentAsCustomPreset(state)) renderForm(uiParts, state);
+  };
+  presetActions.appendChild(savePresetBtn);
+  if (state.preset?.startsWith("custom:")) {
+    const deletePresetBtn = createElement("button", "kiko-small-btn kiko-small-btn-danger", "Delete This Preset");
+    deletePresetBtn.onclick = () => {
+      if (deleteCurrentCustomPreset(state)) renderForm(uiParts, state);
+    };
+    presetActions.appendChild(deletePresetBtn);
+  }
+  presetSection.appendChild(presetActions);
   body.appendChild(presetSection);
 
   // Main Prompt
-  const promptInput = document.createElement("textarea");
-  promptInput.className = "kiko-field-input";
-  promptInput.placeholder = "Describe your scene in detail...";
-  promptInput.value = state.prompt;
-  promptInput.oninput = () => {
-    state.prompt = promptInput.value;
+  const promptInput = createTextarea(state.prompt, "Describe your scene in detail...", (v) => {
+    state.prompt = v;
     update();
-  };
+  });
   body.appendChild(fieldGroup("Main Prompt", promptInput));
 
   // Style
   const styleOptions = flattenOptionsToSelect(dataCache.styles, true);
   const styleDropdown = buildSelect(styleOptions, state.style);
-  const styleText = document.createElement("input");
-  styleText.value = state.style;
-  styleText.placeholder = "e.g., photorealistic, cinematic lighting";
+  const styleText = createTextarea(state.style, "e.g., photorealistic, cinematic lighting", () => {});
   const styleSelector = createStyleSelector(styleDropdown, styleText, state.style, (v) => {
     state.style = v;
     update();
@@ -966,15 +1063,10 @@ function renderForm(uiParts, state) {
   renderSubjects(subjectContainer, state, update);
   structureSection.appendChild(fieldGroup("Subjects", subjectContainer));
 
-  const backgroundInput = document.createElement("input");
-  backgroundInput.type = "text";
-  backgroundInput.className = "kiko-field-input";
-  backgroundInput.placeholder = "Background details; inferred from scene if blank";
-  backgroundInput.value = state.background || "";
-  backgroundInput.oninput = () => {
-    state.background = backgroundInput.value;
+  const backgroundInput = createTextarea(state.background || "", "Background details; inferred from scene if blank", (v) => {
+    state.background = v;
     update();
-  };
+  });
   structureSection.appendChild(fieldGroup("Background", backgroundInput));
 
   body.appendChild(structureSection);
@@ -1035,15 +1127,10 @@ function renderForm(uiParts, state) {
   );
   const focusGroup = createElement("div", "kiko-field-group");
   focusGroup.appendChild(createElement("div", "kiko-field-label", "Focus Description"));
-  const focusInput = document.createElement("input");
-  focusInput.type = "text";
-  focusInput.className = "kiko-field-input";
-  focusInput.placeholder = "Sharp focus on subject";
-  focusInput.value = state.cameraFocus;
-  focusInput.oninput = () => {
-    state.cameraFocus = focusInput.value;
+  const focusInput = createTextarea(state.cameraFocus, "Sharp focus on subject", (v) => {
+    state.cameraFocus = v;
     update();
-  };
+  }, "kiko-short-textarea");
   focusGroup.appendChild(focusInput);
   row3.append(isoGroup, focusGroup);
   cameraSection.appendChild(row3);
@@ -1055,9 +1142,7 @@ function renderForm(uiParts, state) {
   cameraModelGroup.appendChild(cameraModelLabel);
   const cameraOptions2 = flattenOptionsToSelect(dataCache.cameras, true);
   const cameraDropdown = buildSelect(cameraOptions2, state.cameraModel);
-  const cameraText = document.createElement("input");
-  cameraText.value = state.cameraModel;
-  cameraText.placeholder = "e.g., Shot on Sony A7 IV, Kodak Portra 400";
+  const cameraText = createTextarea(state.cameraModel, "e.g., Shot on Sony A7 IV, Kodak Portra 400", () => {}, "kiko-short-textarea");
   const cameraSelector = createStyleSelector(cameraDropdown, cameraText, state.cameraModel, (v) => {
     state.cameraModel = v;
     update();
@@ -1072,9 +1157,7 @@ function renderForm(uiParts, state) {
   lightingSection.appendChild(createElement("div", "kiko-sub-section-title", "Lighting"));
   const lightingOptions = flattenOptionsToSelect(dataCache.lighting, true);
   const lightingDropdown = buildSelect(lightingOptions, state.lighting);
-  const lightingText = document.createElement("input");
-  lightingText.value = state.lighting;
-  lightingText.placeholder = "e.g., Golden hour, three-point lighting";
+  const lightingText = createTextarea(state.lighting, "e.g., Golden hour, three-point lighting", () => {}, "kiko-short-textarea");
   const lightingSelector = createStyleSelector(lightingDropdown, lightingText, state.lighting, (v) => {
     state.lighting = v;
     update();
@@ -1179,9 +1262,7 @@ function renderForm(uiParts, state) {
   // Color Mood
   const moodOptions = flattenOptionsToSelect(dataCache.mood, true);
   const moodDropdown = buildSelect(moodOptions, state.colorMood);
-  const moodText = document.createElement("input");
-  moodText.value = state.colorMood;
-  moodText.placeholder = "e.g., moody yet vibrant";
+  const moodText = createTextarea(state.colorMood, "e.g., moody yet vibrant", () => {}, "kiko-short-textarea");
   const moodSelector = createStyleSelector(moodDropdown, moodText, state.colorMood, (v) => {
     state.colorMood = v;
     update();
@@ -1195,9 +1276,7 @@ function renderForm(uiParts, state) {
   compositionSection.appendChild(createElement("div", "kiko-sub-section-title", "Composition"));
   const compositionOptions = flattenOptionsToSelect(dataCache.composition, true);
   const compositionDropdown = buildSelect(compositionOptions, state.composition);
-  const compositionText = document.createElement("input");
-  compositionText.value = state.composition;
-  compositionText.placeholder = "rule of thirds, leading lines";
+  const compositionText = createTextarea(state.composition, "rule of thirds, leading lines", () => {}, "kiko-short-textarea");
   const compositionSelector = createStyleSelector(compositionDropdown, compositionText, state.composition, (v) => {
     state.composition = v;
     update();
